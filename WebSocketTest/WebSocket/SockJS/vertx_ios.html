@@ -1,0 +1,384 @@
+<html>
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport"
+        content="initial-scale=1, maximum-scale=1, user-scalable=no, width=device-width"/>
+        <title></title>
+        
+        <script type="text/javascript">
+            alert("webView.START");
+            var eb, ctp = 3; //0 - WEB, 1 - PC, 2 - Mobile(ANDROID), 3 - Mobile(IOS), 4 - Table(ANDROID), 5 - (IOS)
+            var sessionkey = "";
+            var url_ = "";
+            var connectStatus = 0;
+            var languageType_ = 1;
+            var clienthandler = function (err, msg) {
+                var jsonResult = new Object();
+                jsonResult["api"] = "push";
+                jsonResult["result"] = msg;
+                window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+            };
+            
+            function disconnect(){
+                alert("websocket.disconnect");
+                connectStatus = 0;
+                if( eb.sockJSConn != undefined) {
+                    // eb.unregisterHandler("address.client."+sessionkey.sKey, jsonHeader, clienthandler);
+                    eb.sockJSConn.close();
+                }
+            }
+            
+            // 헤더에 uuid를 담아서 요청
+            function reConnect(url, uuid, languageType){
+                disconnect();
+                languageType_ = languageType==null?1:languageType;
+                if(connectStatus != 0) return;
+                url_ = url;
+                connectStatus = 1;
+                eb = new EventBus(url);
+                eb.onopen = function() {
+                    connectStatus = 2;
+                    window.webkit.messageHandlers.send.postMessage("open");
+                    //             alert("Connection Open by eventbus.onopen");
+                    
+                    var jsonHeader = new Object();
+                    jsonHeader["client"] = ctp;
+                    jsonHeader["languageType"] = 1;
+                    jsonHeader["UUID"] = uuid;
+                    
+                    
+                    var jsonBody = new Object();
+                    
+                    eb.send("eventbus.auth.login", jsonBody, jsonHeader, function(err, msg){
+                        connectStatus = 3;
+                        alert("msg.body.code : " + msg.body.code);
+                        if(msg.body.code == 200){
+                            sessionkey = msg.body.sKey;
+                            var jsonHeader = new Object();
+                            jsonHeader["client"] = ctp;
+                            jsonHeader["UUID"] = sessionkey;
+                            // 레지스터
+                            eb.registerHandler("client.api."+msg.body.sKey, jsonHeader, clienthandler);
+                            connectStatus = 4;
+                        }
+                        
+                        var jsonResult = new Object();
+                        jsonResult["api"] = "auth";
+                        jsonResult["result"] = msg;
+                        window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                    });
+                    
+                };
+                eb.onclose = function() {
+                    connectStatus = 0;
+                    if(connectStatus > 0){
+                        eb.unregisterHandler("client.api."+ sessionkey , jsonHeader, function (err, msg) {
+                            
+                        });
+                        window.webkit.messageHandlers.send.postMessage("close");
+                        alert("eventbus.onclose");
+                    }
+                };
+            }
+            
+            // 최초 호출하는 함수 uuid (21h128-29293-29392-3edd : 로그인시 받는 uuid, fer23d32d23:192.233.231.11: 웹소켓 연결시 받는 skey)
+            function connect(url, uuid, languageType){
+                alert("connect script");
+                url_ = url;
+                languageType_ = languageType==null?1:languageType;
+                try {
+                    //if(!eb && sessionkey != uuid && uuid.indexOf(":") == -1) {
+                    if(uuid.indexOf(":") == -1) {
+                        alert("eventbus first");
+                        secondConnect = 0
+                        
+                    }else{
+                        alert("eventbus second");
+                        secondConnect = 1
+                        
+                    }
+                    openConn(url, uuid, languageType, secondConnect);
+                }catch(e){
+                    alert("eventbus.onclose");
+                }
+            }
+            
+            function openConn(url, uuid, languageType, secondConnect){
+                languageType_ = languageType==null?1:languageType;
+                alert("openConn");
+                ebConnEvent(url);
+                
+                if (secondConnect == 1) {
+                    connEvent2(uuid);
+                }else {
+                    connEvent(uuid);
+                }
+                
+            }
+            
+            function ebConnEvent(url) {
+                alert("ebConnEvent");
+                alert(eb);
+                if (eb == undefined || eb.state == EventBus.CLOSED) {
+                    
+                    if(connectStatus != 0) {
+                        alert(connectStatus);
+                        return;
+                    }
+                    connectStatus = 1;
+                    eb = new EventBus(url);
+                }else{
+                    disconnect();
+                    connectStatus = 1;
+                    eb = new EventBus(url);
+                }
+            }
+            
+            // 로그인 이후 웹소켓 연결일때, body에 uuid를 담아서 보냄
+            function connEvent(uuid) {
+                alert("connEvent");
+                alert("connectStatus = " + connectStatus);
+                try {
+                    eb.onopen = function() {
+                        connectStatus = 2;
+                        window.webkit.messageHandlers.send.postMessage("open");
+                        alert("Connection Open by eventbus.onopen");
+                        
+                        var jsonHeader = new Object();
+                        jsonHeader["client"] = ctp;
+                        jsonHeader["languageType"] = languageType_;
+                        
+                        var jsonBody = new Object();
+                        jsonBody["uuid"] = uuid;
+                        
+                        eb.send("eventbus.auth.login", jsonBody, jsonHeader, function(err, msg){
+                            alert("eventbus.auth.login");
+                            connectStatus = 3;
+                            alert("msg.body.code : " + msg.body.code);
+                            if(msg.body.code == 200){
+                                alert("auth.login success");
+                                sessionkey = msg.body.sKey;
+                                var jsonHeader = new Object();
+                                jsonHeader["client"] = ctp;
+                                jsonHeader["UUID"] = sessionkey;
+                                eb.registerHandler("address.client."+msg.body.sKey, jsonHeader, clienthandler);
+                                connectStatus = 4;
+                            }
+                            
+                            var jsonResult = new Object();
+                            jsonResult["api"] = "auth";
+                            jsonResult["result"] = msg;
+                            window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                        });
+                        
+                    };
+                
+                }catch(e){
+                    alert("eb.onopen error")
+                }
+                
+                eb.onclose = function() {
+                    connectStatus = 0;
+                    if(connectStatus > 0){
+                        eb.unregisterHandler("client.api."+ sessionkey , jsonHeader, function (err, msg) {
+                            
+                        });
+                        window.webkit.messageHandlers.send.postMessage("close");
+                        alert("eventbus.onclose");
+                    }
+                };
+            }
+            
+            // 리커넥트랑 동일하게 헤더에 uuid 담아서 요청
+            function connEvent2(uuid) {
+                alert("connEvent2");
+                eb.onopen = function() {
+                    connectStatus = 2;
+                    window.webkit.messageHandlers.send.postMessage("open");
+                    //             alert("Connection Open by eventbus.onopen");
+                    
+                    var jsonHeader = new Object();
+                    jsonHeader["client"] = ctp;
+                    jsonHeader["languageType"] = languageType_;
+                    jsonHeader["uuid"] = uuid;
+                    
+                    var jsonBody = new Object();
+                    
+                    eb.send("eventbus.auth.login", jsonBody, jsonHeader, function(err, msg){
+                        alert("eventbus.auth.login");
+                        connectStatus = 3;
+                        alert("msg.body.code : " + msg.body.code);
+                        if(msg.body.code == 200){
+                            alert("auth.login success");
+                            sessionkey = msg.body.sKey;
+                            
+                            var jsonHeader = new Object();
+                            jsonHeader["client"] = ctp;
+                            jsonHeader["UUID"] = sessionkey;
+                            eb.registerHandler("address.client."+msg.body.sKey, jsonHeader, clienthandler);
+                            connectStatus = 4;
+                        }
+                        
+                        var jsonResult = new Object();
+                        jsonResult["api"] = "auth";
+                        jsonResult["result"] = msg;
+                        window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                    });
+                    
+                };
+                eb.onclose = function() {
+                    connectStatus = 0;
+                    if(connectStatus > 0){
+                        eb.unregisterHandler("client.api."+ sessionkey , jsonHeader, function (err, msg) {
+                            
+                        });
+                        window.webkit.messageHandlers.send.postMessage("close");
+                        alert("eventbus.onclose");
+                    }
+                };
+            }
+            
+            
+            
+            function send(address, headerString, bodyString, tag) {
+                
+                let saveTag = tag;
+                
+                if(connectStatus != 4) return false;
+                var jsonHeader = new Object();
+                jsonHeader["client"] = ctp;
+                jsonHeader["UUID"] = sessionkey;
+                jsonHeader["languageType"] = languageType_;
+                
+                if(headerString != ''){
+                    var header = JSON.parse(headerString);
+                    //             alert("jsonHeader="+JSON.stringify(jsonHeader));
+                    //             alert("headString="+headerString);
+                    for (var headerName in header) {
+                        if (header.hasOwnProperty(headerName)) {
+                            if (typeof jsonHeader[headerName] === 'undefined') {
+                                jsonHeader[headerName] = header[headerName];
+                            }
+                        }
+                    }
+                    //             alert("jsonHeader="+JSON.stringify(jsonHeader));
+                }
+                
+                var jsonBody = new Object();
+                
+                if(bodyString != ''){
+                    var body = JSON.parse(bodyString.replace(/&#39;/g, "\'"));
+                    //             alert("jsonBody="+JSON.stringify(jsonBody));
+                    //             alert("bodyString="+bodyString);
+                    for (var bodyName in body) {
+                        if (body.hasOwnProperty(bodyName)) {
+                            if (typeof jsonBody[bodyName] === 'undefined') {
+                                jsonBody[bodyName] = body[bodyName];
+                            }
+                        }
+                    }
+                    //             alert("jsonBody="+JSON.stringify(jsonBody));
+                }
+                
+                if(!eb) {
+                    alert("connect refused !!!");
+                    reConnect(url_, sessionkey);
+                }else if((eb.state == EventBus.CONNECTING) || (eb.state == EventBus.CLOSED)) {
+                    alert("connect CLOSED !!!");
+                    reConnect(url_, sessionkey);
+                }else{
+                    //            alert(eb);
+                    
+                    eb.send(address, jsonBody, jsonHeader, function (err, msg) {
+                        var jsonResult = new Object();
+                        jsonResult["api"] = address;
+                        jsonResult["result"] = msg;
+                        jsonResult["bodyString"] = jsonBody;
+                        jsonResult["tag"] = saveTag;
+                        window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                    });
+                }
+            }
+            
+            function isConnect(){
+                alert("isConnect");
+                alert("eventbus.connectStatus = " + connectStatus);
+                if(connectStatus != 4){
+                    if(!eb) {
+                        alert("eventbus.false");
+                    }else if((eb.state == EventBus.CONNECTING) || (eb.state == EventBus.CLOSED)) {
+                        alert("eventbus.false");
+                    }else{
+                        if(connectStatus > 0) alert("eventbus.true");
+                        else alert("eventbus.false");
+                    }
+                }else{
+                    alert("eventbus.true");
+                }
+            }
+            
+            function register(address, headerString) {
+                if(connectStatus != 4) return false;
+                alert("[register]");
+                var jsonHeader = new Object();
+                jsonHeader["client"] = ctp;
+                jsonHeader["UUID"] = sessionkey;
+                jsonHeader["languageType"] = languageType_;
+                
+                if(headerString != ''){
+                    var header = JSON.parse(headerString);
+                    alert("jsonHeader="+JSON.stringify(jsonHeader));
+                    alert("headString="+headString);
+                    for (var headerName in header) {
+                        if (header.hasOwnProperty(headerName)) {
+                            if (typeof jsonHeader[headerName] === 'undefined') {
+                                jsonHeader[headerName] = header[headerName];
+                            }
+                        }
+                    }
+                    alert("jsonHeader="+JSON.stringify(jsonHeader));
+                }
+                
+                eb.registerHandler(address, jsonHeader, function (err, msg) {
+                    var jsonResult = new Object();
+                    jsonResult["api"] = address;
+                    jsonResult["result"] = msg;
+                    window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                });
+            }
+            
+            function unregister(address, headerString){
+                if(connectStatus != 4) return false;
+                //         alert("[unregister]");
+                var jsonHeader = new Object();
+                jsonHeader["client"] = ctp;
+                jsonHeader["UUID"] = sessionkey;
+                jsonHeader["languageType"] = languageType_;
+                
+                if(headerString != ''){
+                    var header = JSON.parse(headerString);
+                    //             alert("jsonHeader="+JSON.stringify(jsonHeader));
+                    //             alert("headString="+headString);
+                    for (var headerName in header) {
+                        if (header.hasOwnProperty(headerName)) {
+                            if (typeof jsonHeader[headerName] === 'undefined') {
+                                jsonHeader[headerName] = header[headerName];
+                            }
+                        }
+                    }
+                    //             alert("jsonHeader="+JSON.stringify(jsonHeader));
+                }
+                eb.unregisterHandler(address, jsonHeader, function (err, msg) {
+                    var jsonResult = new Object();
+                    jsonResult["api"] = address;
+                    jsonResult["result"] = msg;
+                    window.webkit.messageHandlers.send.postMessage(String(JSON.stringify(jsonResult)));
+                });
+            }
+            
+        </script>
+        
+    </head>
+    <body>
+    </body>
+</html>
